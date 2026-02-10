@@ -282,6 +282,7 @@ export default function FamilyPage() {
         setTransNote(item.note || "");
         setTransLocation(item.location || STORAGE_LOCATIONS[0]);
         setTransCurrency(item.currency || 'TRY');
+        setSelectedMember(selectedHistoryMember); // Ensure selectedMember is set for handleAddChildTransaction
         setShowTransactionModal(true);
         setShowHistoryModal(false);
     };
