@@ -68,10 +68,12 @@ export default function AdminPanel() {
         }
     };
 
-    const filteredUsers = allUsers.filter(u =>
-        u.email?.toLowerCase().includes(search.toLowerCase()) ||
-        u.displayName?.toLowerCase().includes(search.toLowerCase())
-    );
+    const filteredUsers = allUsers.filter(u => {
+        const matchesSearch = u.email?.toLowerCase().includes(search.toLowerCase()) ||
+            u.displayName?.toLowerCase().includes(search.toLowerCase());
+        // Only show approved users in the bottom management list to avoid duplication
+        return matchesSearch && u.isApproved === true;
+    });
 
     if (loading) return <div className="p-8 text-center">Yükleniyor...</div>;
 
