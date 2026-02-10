@@ -49,8 +49,18 @@ export default function AdminPanel() {
         }
     };
 
+    const handleToggleStatus = async (userId: string, currentStatus: boolean) => {
+        try {
+            await updateDoc(doc(db, "users", userId), {
+                isApproved: !currentStatus
+            });
+        } catch (err) {
+            console.error("Toggle error:", err);
+        }
+    };
+
     const handleReject = async (userId: string) => {
-        if (!confirm("Bu kullanıcıyı silmek istediğinize emin misiniz?")) return;
+        if (!confirm("Bu kullanıcıyı kalıcı olarak silmek istediğinize emin misiniz?")) return;
         try {
             await deleteDoc(doc(db, "users", userId));
         } catch (err) {
@@ -157,14 +167,27 @@ export default function AdminPanel() {
                                     <p className="text-[10px] text-muted-foreground">{u.email}</p>
                                 </div>
                             </div>
-                            <div className="flex items-center gap-2">
-                                <span className={`text-[8px] font-black uppercase px-2 py-0.5 rounded-full ${u.isApproved ? 'bg-emerald-500/10 text-emerald-600' : 'bg-amber-500/10 text-amber-600'}`}>
-                                    {u.isApproved ? 'Aktif' : 'Beklemede'}
-                                </span>
-                                {u.role === 'admin' && (
-                                    <span className="text-[8px] font-black uppercase px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-600">
-                                        Admin
+                            <div className="flex items-center gap-3">
+                                <div className="flex flex-col items-end gap-1">
+                                    <span className={`text-[8px] font-black uppercase px-2 py-0.5 rounded-full ${u.isApproved ? 'bg-emerald-500/10 text-emerald-600' : 'bg-amber-500/10 text-amber-600'}`}>
+                                        {u.isApproved ? 'Aktif' : 'Beklemede'}
                                     </span>
+                                    {u.role === 'admin' && (
+                                        <span className="text-[8px] font-black uppercase px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-600">
+                                            Admin
+                                        </span>
+                                    )}
+                                </div>
+
+                                {u.email !== 'meoncu@gmail.com' && (
+                                    <Button
+                                        size="sm"
+                                        variant={u.isApproved ? "outline" : "default"}
+                                        className={`h-7 text-[9px] font-bold px-3 rounded-lg ${u.isApproved ? 'text-rose-600 border-rose-200' : 'bg-emerald-600'}`}
+                                        onClick={() => handleToggleStatus(u.id, !!u.isApproved)}
+                                    >
+                                        {u.isApproved ? 'DURDUR' : 'AKTİF ET'}
+                                    </Button>
                                 )}
                             </div>
                         </div>
