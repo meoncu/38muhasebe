@@ -41,7 +41,7 @@ export default function ProtectedRoute({ children, allowPending = false }: { chi
             if (docSnap.exists()) {
                 const data = docSnap.data();
                 const isOwner = user.email === 'meoncu@gmail.com';
-                setIsApproved(!!data.isApproved || data.role === 'admin' || isOwner);
+                setIsApproved(data.isApproved === true || isOwner);
                 setHasFamily(!!data.familyId);
                 setRole(isOwner ? 'admin' : (data.role || null));
             } else {
@@ -71,7 +71,7 @@ export default function ProtectedRoute({ children, allowPending = false }: { chi
             return;
         }
 
-        const effectiveApproved = isApproved || role === 'admin';
+        const effectiveApproved = isApproved;
 
         // If user IS NOT approved, they MUST go to pending
         if (!effectiveApproved && !allowPending && location.pathname !== '/profile') {

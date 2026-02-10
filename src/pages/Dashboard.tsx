@@ -207,28 +207,25 @@ export default function Dashboard() {
 
         const isSuperAdmin = user.email === 'meoncu@gmail.com';
 
-        let qPending;
+        let q;
         if (isSuperAdmin) {
-            // Super admin sees ALL unapproved users
-            qPending = query(
-                collection(db, "users"),
-                where("isApproved", "==", false)
-            );
+            q = query(collection(db, "users"));
         } else if (familyId) {
-            // Family admin sees only their family members
-            qPending = query(
-                collection(db, "users"),
-                where("familyId", "==", familyId),
-                where("isApproved", "==", false)
-            );
+            q = query(collection(db, "users"), where("familyId", "==", familyId));
         } else {
             setPendingMembers([]);
             return;
         }
 
-        return onSnapshot(qPending, (snapshot) => {
+        return onSnapshot(q, (snapshot) => {
             const p: any[] = [];
-            snapshot.forEach(doc => p.push({ id: doc.id, ...doc.data() }));
+            snapshot.forEach(docSnap => {
+                const data = docSnap.data();
+                const isOwner = data.email === 'meoncu@gmail.com';
+                if (!isOwner && data.isApproved !== true) {
+                    p.push({ id: docSnap.id, ...data });
+                }
+            });
             setPendingMembers(p);
         });
     }, [user, myRole, familyId]);
