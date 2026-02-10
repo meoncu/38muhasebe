@@ -1,12 +1,12 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { ChevronLeft, TrendingUp, TrendingDown, Wallet, Calendar, ChevronRight, ChevronDown, Receipt, PieChart as PieIcon, ArrowUpRight, ArrowDownRight } from 'lucide-react';
+import { Card, CardContent } from '@/components/ui/card';
+import { ChevronLeft, TrendingUp, TrendingDown, Wallet, Calendar, ChevronRight, ChevronDown, Receipt, ArrowUpRight, ArrowDownRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/store/authStore';
 import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import { format, startOfMonth, endOfMonth, eachMonthOfInterval, subMonths } from 'date-fns';
+import { format } from 'date-fns';
 import { tr } from 'date-fns/locale';
 
 interface Transaction {
@@ -27,7 +27,6 @@ export default function CashFlowPage() {
     const [transactions, setTransactions] = useState<Transaction[]>([]);
     const [expandedMonths, setExpandedMonths] = useState<string[]>([]);
     const [expandedCategories, setExpandedCategories] = useState<string[]>([]);
-    const [loading, setLoading] = useState(true);
 
     useEffect(() => {
         if (!activeUser) return;
@@ -47,7 +46,6 @@ export default function CashFlowPage() {
             // Sort by date descending
             txs.sort((a, b) => (b.date?.seconds || 0) - (a.date?.seconds || 0));
             setTransactions(txs);
-            setLoading(false);
         });
 
         return () => unsubscribe();

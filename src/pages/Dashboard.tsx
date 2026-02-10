@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { ArrowUpRight, ArrowDownRight, AlertCircle, Calendar, Home, Users, PieChart, Settings, Edit2, Check, X, Folder, Bell, ChevronRight, Bug } from 'lucide-react';
+import { Card, CardContent, CardHeader } from '@/components/ui/card';
+import { AlertCircle, Calendar, Home, Users, PieChart, Settings, Edit2, Check, X, Folder, Bell, Bug } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/store/authStore';
 import { updateProfile } from 'firebase/auth';
