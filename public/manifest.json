@@ -1,0 +1,16 @@
+{
+    "short_name": "38 Muhasebe",
+    "name": "38 Muhasebe - Akıllı Finans Yönetimi",
+    "icons": [
+        {
+            "src": "/favicon.svg",
+            "type": "image/svg+xml",
+            "sizes": "512x512",
+            "purpose": "any maskable"
+        }
+    ],
+    "start_url": ".",
+    "display": "standalone",
+    "theme_color": "#10b981",
+    "background_color": "#ffffff"
+}
