@@ -21,9 +21,6 @@ export default function PendingApproval() {
                 if (data.isApproved) {
                     navigate('/'); // Redirect to dashboard if approved
                 }
-                if (!data.familyId) {
-                    navigate('/family'); // Go back to join/create if no family
-                }
             }
         });
 

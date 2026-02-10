@@ -7,7 +7,7 @@ import { useAuthStore } from '@/store/authStore';
 import { updateProfile } from 'firebase/auth';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { collection, query, where, onSnapshot, doc, updateDoc, Timestamp, getDocs } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, doc, updateDoc, Timestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { format, differenceInDays, isBefore, startOfDay, isSameMonth } from 'date-fns';
 import { tr } from 'date-fns/locale';
@@ -25,6 +25,8 @@ export default function Dashboard() {
     const [isEditing, setIsEditing] = useState(false);
     const [newName, setNewName] = useState("");
     const [loading, setLoading] = useState(false);
+
+    // Balance States
     const [totalIncome, setTotalIncome] = useState(0);
     const [totalExpense, setTotalExpense] = useState(0);
     const [balance, setBalance] = useState(0);
@@ -32,11 +34,11 @@ export default function Dashboard() {
     const [upcomingExpenses, setUpcomingExpenses] = useState<any[]>([]);
     const [recentActivity, setRecentActivity] = useState<any[]>([]);
     const [pendingMembers, setPendingMembers] = useState<any[]>([]);
-    const [myRole, setMyRole] = useState<'admin' | 'member'>('member');
+    const [myRole, setMyRole] = useState<'admin' | 'member'>(activeUser?.email === 'meoncu@gmail.com' ? 'admin' : 'member');
     const [familyId, setFamilyId] = useState<string | null>(null);
     const [familyTotalBalance, setFamilyTotalBalance] = useState(0);
-    const [familyAssets, setFamilyAssets] = useState<Record<string, Record<string, number>>>({}); // currency -> location -> total
-    const [personalAssets, setPersonalAssets] = useState<Record<string, Record<string, number>>>({}); // currency -> location -> amount
+    const [familyAssets, setFamilyAssets] = useState<Record<string, Record<string, number>>>({});
+    const [personalAssets, setPersonalAssets] = useState<Record<string, Record<string, number>>>({});
 
     // Fetch live rates
     useEffect(() => {
@@ -61,12 +63,13 @@ export default function Dashboard() {
         fetchRates();
         const interval = setInterval(fetchRates, 30 * 60 * 1000);
         return () => clearInterval(interval);
-    }, []);
+    }, [setRates]);
 
+    // Main Data Fetch
     useEffect(() => {
         if (!activeUser) return;
 
-        // Fetch ALL Expenses for Dashboard (Balance + Notifications)
+        // Fetch ALL Expenses for Dashboard
         const qAll = query(
             collection(db, "expenses"),
             where("userId", "==", activeUser.uid)
@@ -132,11 +135,13 @@ export default function Dashboard() {
             setPersonalAssets(pAssets);
         });
 
-        // Fetch User and Family Info
+        // Fetch User Info
+        const isOwner = activeUser.email === 'meoncu@gmail.com';
+        if (isOwner) setMyRole('admin');
+
         const unsubscribeUser = onSnapshot(doc(db, "users", activeUser.uid), (docSnap) => {
             if (docSnap.exists()) {
                 const data = docSnap.data();
-                const isOwner = activeUser.email === 'meoncu@gmail.com';
                 setMyRole(isOwner ? 'admin' : (data.role || 'member'));
                 setFamilyId(data.familyId || null);
             }
@@ -148,6 +153,7 @@ export default function Dashboard() {
         };
     }, [activeUser, rates]);
 
+    // Family Assets Effect
     useEffect(() => {
         if (!familyId) {
             setFamilyAssets({});
@@ -177,13 +183,43 @@ export default function Dashboard() {
             let totalTL = 0;
             Object.entries(assets).forEach(([curr, locs]) => {
                 const rate = rates[curr] || 1;
-                const currencyTotal = Object.values(locs).reduce((a, b) => a + b, 0);
+                const currencyTotal = Object.values(locs).reduce((a: number, b: number) => a + b, 0);
                 totalTL += (currencyTotal * rate);
             });
             setFamilyTotalBalance(totalTL);
         });
         return () => unsubscribeFamily();
     }, [familyId, rates]);
+
+    // Pending Members Effect
+    useEffect(() => {
+        if (!user || myRole !== 'admin') {
+            setPendingMembers([]);
+            return;
+        }
+
+        const isSuperAdmin = user.email === 'meoncu@gmail.com';
+
+        // Use a generic query and filter in memory to catch all unapproved users
+        const q = query(collection(db, "users"));
+
+        return onSnapshot(q, (snapshot) => {
+            const p: any[] = [];
+            snapshot.forEach(docSnap => {
+                const data = docSnap.data();
+                const isOwner = data.email === 'meoncu@gmail.com';
+
+                // If I am super-admin, I see ALL unapproved.
+                // If I am family admin, I see only MY family unapproved.
+                if (!isOwner && data.isApproved !== true) {
+                    if (isSuperAdmin || (familyId && data.familyId === familyId)) {
+                        p.push({ id: docSnap.id, ...data });
+                    }
+                }
+            });
+            setPendingMembers(p);
+        });
+    }, [user, myRole, familyId]);
 
     const handlePayExpense = async (expId: string) => {
         try {
@@ -197,76 +233,6 @@ export default function Dashboard() {
             console.error("Payment error:", error);
         }
     };
-
-    // Pending Members Effect
-    useEffect(() => {
-        if (!user || myRole !== 'admin') {
-            setPendingMembers([]);
-            return;
-        }
-
-        const isSuperAdmin = user.email === 'meoncu@gmail.com';
-
-        let q;
-        if (isSuperAdmin) {
-            q = query(collection(db, "users"));
-        } else if (familyId) {
-            q = query(collection(db, "users"), where("familyId", "==", familyId));
-        } else {
-            setPendingMembers([]);
-            return;
-        }
-
-        return onSnapshot(q, (snapshot) => {
-            const p: any[] = [];
-            snapshot.forEach(docSnap => {
-                const data = docSnap.data();
-                const isOwner = data.email === 'meoncu@gmail.com';
-                if (!isOwner && data.isApproved !== true) {
-                    p.push({ id: docSnap.id, ...data });
-                }
-            });
-            setPendingMembers(p);
-        });
-    }, [user, myRole, familyId]);
-
-    // Auto-pay Effect
-    // Auto-pay & Auto-collection Effect
-    useEffect(() => {
-        if (!user || myRole !== 'admin') return;
-        const checkAutoPayments = async () => {
-            const today = startOfDay(new Date());
-            const q = query(
-                collection(db, "expenses"),
-                where("status", "==", "unpaid")
-            );
-            try {
-                const querySnapshot = await getDocs(q);
-                querySnapshot.forEach(async (docSnap) => {
-                    const data = docSnap.data();
-                    const isSalary = data.type === 'income' && data.name?.toLocaleLowerCase('tr-TR').includes('maaş');
-                    const shouldAutoProcess = data.isAutoPay === true || isSalary;
-
-                    if (!shouldAutoProcess) return;
-
-                    const dueDate = data.dueDate?.seconds ? new Date(data.dueDate.seconds * 1000) : null;
-                    if (dueDate && (isBefore(dueDate, today) || dueDate.getTime() === today.getTime())) {
-                        await updateDoc(doc(db, "expenses", docSnap.id), {
-                            status: 'paid',
-                            paidBy: 'System (Auto)',
-                            paidByEmail: data.type === 'income'
-                                ? 'Otomatik Maaş/Gelir Tahsilatı'
-                                : 'Otomatik Banka Ödemesi',
-                            date: Timestamp.now()
-                        });
-                    }
-                });
-            } catch (err) {
-                console.error("Auto-pay error:", err);
-            }
-        };
-        checkAutoPayments();
-    }, [user, myRole]);
 
     const handleApproveMember = async (targetUid: string) => {
         try { await updateDoc(doc(db, "users", targetUid), { isApproved: true }); } catch (err) { console.error(err); }
@@ -328,7 +294,6 @@ export default function Dashboard() {
                     </div>
                 </div>
 
-
                 {/* Compact Balance Card */}
                 <Card
                     className="bg-primary text-primary-foreground border-none shadow-xl mb-6 relative overflow-hidden group hover:shadow-2xl transition-all duration-300 cursor-pointer"
@@ -355,25 +320,24 @@ export default function Dashboard() {
                             </div>
 
                             <div className="flex flex-col items-end gap-2 max-w-[140px]">
-                                {/* Minimalist Assets */}
-                                {Object.entries(myRole === 'admin' ? familyAssets : personalAssets).map(([curr, locs]) => {
+                                {/* Assets */}
+                                {Object.entries(myRole === 'admin' && familyId ? familyAssets : personalAssets).map(([curr, locs]) => {
                                     const currencySymbol = CURRENCIES.find(c => c.code === curr)?.symbol || curr;
-                                    const total = Object.values(locs).reduce((a, b) => a + b, 0);
+                                    const total = Object.values(locs).reduce((a, b) => (a as number) + (b as number), 0);
                                     if (total === 0) return null;
                                     return (
                                         <div key={curr} className="flex flex-col items-end leading-tight border-r-2 border-white/10 pr-2 mr-1">
-                                            <span className="text-sm font-black text-white">{currencySymbol}{total.toLocaleString('tr-TR')}</span>
+                                            <span className="text-sm font-black text-white">{currencySymbol}{(total as number).toLocaleString('tr-TR')}</span>
                                             <div className="flex flex-wrap justify-end gap-1 opacity-60">
-                                                {Object.entries(locs).filter(([_, a]) => a !== 0).map(([l, a]) => (
-                                                    <span key={l} className="text-[7px] font-bold uppercase">{l[0]}:{a}</span>
+                                                {Object.entries(locs as any).filter(([_, a]) => (a as number) !== 0).map(([l, a]) => (
+                                                    <span key={l} className="text-[7px] font-bold uppercase">{l[0]}:{(a as number)}</span>
                                                 ))}
                                             </div>
                                         </div>
                                     );
                                 })}
 
-                                {/* Integrated Family Link */}
-                                {myRole === 'admin' && (
+                                {myRole === 'admin' && familyId && (
                                     <button
                                         onClick={(e) => { e.stopPropagation(); navigate('/family'); }}
                                         className="mt-1 flex items-center gap-1.5 px-2 py-1 bg-white/5 hover:bg-white/10 rounded-lg text-white/40 hover:text-white transition-all text-[8px] font-black uppercase tracking-widest border border-white/5"
@@ -387,18 +351,18 @@ export default function Dashboard() {
                     <CardContent className="p-5" />
                 </Card>
 
-                {/* Notifications */}
+                {/* Notifications / Pending Approval Panel */}
                 {myRole === 'admin' && pendingMembers.length > 0 && (
                     <section className="mb-8 animate-in slide-in-from-top-4 duration-500">
                         <div className="flex items-center gap-2 mb-4 text-amber-600">
-                            <Bell size={18} className="animate-bounce" /><h3 className="text-xs uppercase font-black tracking-widest">Onay Bekleyenler</h3>
+                            <Bell size={18} className="animate-bounce" /><h3 className="text-xs uppercase font-black tracking-widest">Giris Onayı Bekleyenler</h3>
                         </div>
                         <div className="space-y-3">
                             {pendingMembers.map(m => (
                                 <Card key={m.id} className="border-amber-200 bg-amber-50/50 p-4 flex items-center justify-between">
                                     <div className="flex items-center gap-3">
                                         <div className="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center font-bold text-amber-700">{m.displayName?.[0] || 'U'}</div>
-                                        <div><p className="font-bold text-sm leading-tight">{m.displayName || m.email}</p><p className="text-[10px] text-muted-foreground">Katılım isteği</p></div>
+                                        <div><p className="font-bold text-sm leading-tight">{m.displayName || m.email}</p><p className="text-[10px] text-muted-foreground">Sisteme giriş isteği</p></div>
                                     </div>
                                     <div className="flex gap-2">
                                         <Button size="icon" variant="ghost" className="h-8 w-8 text-rose-500" onClick={() => handleRejectMember(m.id)}><X size={18} /></Button>
