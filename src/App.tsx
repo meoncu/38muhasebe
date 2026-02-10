@@ -10,6 +10,7 @@ import ProtectedRoute from '@/components/auth/ProtectedRoute';
 import ImpersonationBanner from '@/components/auth/ImpersonationBanner';
 import DebugPage from '@/pages/DebugPage';
 import CashFlowPage from '@/pages/CashFlowPage';
+import AdminPanel from '@/pages/AdminPanel';
 
 function App() {
   return (
@@ -71,6 +72,14 @@ function App() {
           element={
             <ProtectedRoute>
               <DebugPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin"
+          element={
+            <ProtectedRoute>
+              <AdminPanel />
             </ProtectedRoute>
           }
         />

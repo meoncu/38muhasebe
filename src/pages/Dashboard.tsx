@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
-import { AlertCircle, Calendar, Home, Users, PieChart, Settings, Edit2, Check, X, Folder, Bell, Bug } from 'lucide-react';
+import { AlertCircle, Calendar, Home, Users, PieChart, Settings, Edit2, Check, X, Folder, Bell, Bug, ShieldCheck } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/store/authStore';
 import { updateProfile } from 'firebase/auth';
@@ -276,20 +276,30 @@ export default function Dashboard() {
                                 <button onClick={() => { setNewName(user?.displayName || ""); setIsEditing(true); }} className="opacity-0 group-hover:opacity-100 transition-opacity p-1 text-muted-foreground hover:text-primary"><Edit2 size={16} /></button>
                             </div>
                         )}
-                    </div>
-                    <div className="flex items-center gap-3">
-                        {myRole === 'admin' && (
-                            <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => navigate('/debug')}
-                                className="h-10 w-10 rounded-xl bg-orange-500/10 text-orange-600 hover:bg-orange-500/20 shadow-sm border border-orange-500/10"
-                            >
-                                <Bug size={20} />
-                            </Button>
-                        )}
-                        <div className="h-10 w-10 rounded-full bg-primary/10 text-primary flex items-center justify-center border border-primary/20 overflow-hidden shadow-sm">
-                            {user?.photoURL ? <img src={user.photoURL} className="w-full h-full object-cover" /> : <span className="text-sm font-bold">{(user?.displayName || user?.email)?.[0]?.toUpperCase()}</span>}
+                        <div className="flex items-center gap-3">
+                            {user?.email === 'meoncu@gmail.com' && (
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={() => navigate('/admin')}
+                                    className="h-10 w-10 rounded-xl bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20 shadow-sm border border-emerald-500/10"
+                                >
+                                    <ShieldCheck size={20} />
+                                </Button>
+                            )}
+                            {myRole === 'admin' && (
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={() => navigate('/debug')}
+                                    className="h-10 w-10 rounded-xl bg-orange-500/10 text-orange-600 hover:bg-orange-500/20 shadow-sm border border-orange-500/10"
+                                >
+                                    <Bug size={20} />
+                                </Button>
+                            )}
+                            <div className="h-10 w-10 rounded-full bg-primary/10 text-primary flex items-center justify-center border border-primary/20 overflow-hidden shadow-sm">
+                                {user?.photoURL ? <img src={user.photoURL} className="w-full h-full object-cover" /> : <span className="text-sm font-bold">{(user?.displayName || user?.email)?.[0]?.toUpperCase()}</span>}
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -453,7 +463,7 @@ export default function Dashboard() {
                 <NavItem icon={<PieChart size={22} />} label="Analiz" onClick={() => navigate('/reports')} />
                 <NavItem icon={<Settings size={22} />} label="Profil" onClick={() => navigate('/profile')} />
             </div>
-        </div>
+        </div >
     );
 }
 
