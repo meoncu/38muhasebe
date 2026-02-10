@@ -1,5 +1,6 @@
 import { signInWithPopup, GoogleAuthProvider } from 'firebase/auth';
-import { auth } from '@/lib/firebase';
+import { auth, db } from '@/lib/firebase';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -11,7 +12,25 @@ export default function Login() {
     const handleGoogleLogin = async () => {
         try {
             const provider = new GoogleAuthProvider();
-            await signInWithPopup(auth, provider);
+            const result = await signInWithPopup(auth, provider);
+            const user = result.user;
+
+            if (user) {
+                const userRef = doc(db, "users", user.uid);
+                const userDoc = await getDoc(userRef);
+
+                if (!userDoc.exists()) {
+                    const isOwner = user.email === 'meoncu@gmail.com';
+                    await setDoc(userRef, {
+                        email: user.email,
+                        displayName: user.displayName,
+                        role: isOwner ? 'admin' : 'member',
+                        isApproved: isOwner, // Auto approve the owner
+                        createdAt: new Date().toISOString()
+                    });
+                }
+            }
+
             navigate('/');
         } catch (error) {
             console.error("Giriş hatası:", error);

@@ -71,16 +71,10 @@ export default function ProtectedRoute({ children, allowPending = false }: { chi
             return;
         }
 
-        // If user has NO family, they MUST go to family page to join/create
-        if (!hasFamily && location.pathname !== '/family' && location.pathname !== '/profile') {
-            navigate('/family');
-            return;
-        }
-
         const effectiveApproved = isApproved || role === 'admin';
 
-        // If user HAS family but NOT approved, they MUST go to pending
-        if (hasFamily && !effectiveApproved && !allowPending && location.pathname !== '/profile') {
+        // If user IS NOT approved, they MUST go to pending
+        if (!effectiveApproved && !allowPending && location.pathname !== '/profile') {
             navigate('/pending');
             return;
         }
@@ -88,6 +82,12 @@ export default function ProtectedRoute({ children, allowPending = false }: { chi
         // If user IS approved and tries to visit /pending, take them home
         if (effectiveApproved && location.pathname === '/pending') {
             navigate('/');
+            return;
+        }
+
+        // If user has NO family, they MUST go to family page to join/create
+        if (!hasFamily && location.pathname !== '/family' && location.pathname !== '/profile') {
+            navigate('/family');
             return;
         }
     }, [user, loading, dbLoading, isApproved, hasFamily, role, navigate, location.pathname, allowPending]);

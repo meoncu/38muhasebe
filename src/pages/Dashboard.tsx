@@ -200,15 +200,32 @@ export default function Dashboard() {
 
     // Pending Members Effect
     useEffect(() => {
-        if (!user || myRole !== 'admin' || !familyId) {
+        if (!user || myRole !== 'admin') {
             setPendingMembers([]);
             return;
         }
-        const qPending = query(
-            collection(db, "users"),
-            where("familyId", "==", familyId),
-            where("isApproved", "==", false)
-        );
+
+        const isSuperAdmin = user.email === 'meoncu@gmail.com';
+
+        let qPending;
+        if (isSuperAdmin) {
+            // Super admin sees ALL unapproved users
+            qPending = query(
+                collection(db, "users"),
+                where("isApproved", "==", false)
+            );
+        } else if (familyId) {
+            // Family admin sees only their family members
+            qPending = query(
+                collection(db, "users"),
+                where("familyId", "==", familyId),
+                where("isApproved", "==", false)
+            );
+        } else {
+            setPendingMembers([]);
+            return;
+        }
+
         return onSnapshot(qPending, (snapshot) => {
             const p: any[] = [];
             snapshot.forEach(doc => p.push({ id: doc.id, ...doc.data() }));

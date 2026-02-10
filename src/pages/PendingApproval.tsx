@@ -47,7 +47,7 @@ export default function PendingApproval() {
                     <div className="space-y-2">
                         <h2 className="text-2xl font-black tracking-tight">Onay Bekleniyor</h2>
                         <p className="text-muted-foreground text-sm px-4">
-                            Aile grubuna katılım isteğiniz gönderildi. Grup yöneticisi onayladıktan sonra uygulamayı kullanmaya başlayabilirsiniz.
+                            Giriş isteğiniz yöneticiye iletildi. Güvenlik gereği, yönetici onaylamadan sistemi kullanamazsınız.
                         </p>
                     </div>
 
