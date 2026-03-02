@@ -1,13 +1,13 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, CardHeader } from '@/components/ui/card';
-import { AlertCircle, PieChart, Edit2, Check, X, Bug, ShieldCheck, Search, Bell, Calendar, Home, Folder, Users, Settings, ChevronLeft, ChevronRight } from 'lucide-react';
+import { AlertCircle, PieChart, Edit2, Check, X, Bug, ShieldCheck, Search, Bell, Home, Folder, Users, Settings, ChevronLeft, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/store/authStore';
 import { updateProfile } from 'firebase/auth';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { collection, query, where, onSnapshot, doc, updateDoc, Timestamp, deleteDoc, getDocs } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, doc, updateDoc, Timestamp, deleteDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { format, differenceInDays, isBefore, startOfDay, isSameMonth, addMonths, subMonths } from 'date-fns';
 import { tr } from 'date-fns/locale';
@@ -28,7 +28,6 @@ export default function Dashboard() {
 
     // Main States
     const [overdueExpenses, setOverdueExpenses] = useState<any[]>([]);
-    const [upcomingExpenses, setUpcomingExpenses] = useState<any[]>([]);
     const [pendingMembers, setPendingMembers] = useState<any[]>([]);
     const [myRole, setMyRole] = useState<'admin' | 'member'>(activeUser?.email === 'meoncu@gmail.com' ? 'admin' : 'member');
     const [familyId, setFamilyId] = useState<string | null>(null);
@@ -150,7 +149,6 @@ export default function Dashboard() {
                 upcoming.sort((a, b) => a.dueDate.getTime() - b.dueDate.getTime());
 
                 setOverdueExpenses(overdue);
-                setUpcomingExpenses(upcoming.slice(0, 5));
 
                 const sortedSummary = Object.entries(catMap).map(([name, data]) => ({
                     name,
@@ -250,8 +248,8 @@ export default function Dashboard() {
                         </div>
                     ) : (
                         <div className="flex items-center gap-2 group">
-                            <h1 className="text-3xl font-black tracking-tighter text-slate-900 lowercase">{activeUser.displayName || 'Kullanıcı'}</h1>
-                            <button onClick={() => { setIsEditing(true); setNewName(activeUser.displayName || ''); }} className="opacity-0 group-hover:opacity-100 transition-opacity"><Edit2 size={14} className="text-muted-foreground" /></button>
+                            <h1 className="text-3xl font-black tracking-tighter text-slate-900 lowercase">{activeUser?.displayName || 'Kullanıcı'}</h1>
+                            <button onClick={() => { setIsEditing(true); setNewName(activeUser?.displayName || ''); }} className="opacity-0 group-hover:opacity-100 transition-opacity"><Edit2 size={14} className="text-muted-foreground" /></button>
                         </div>
                     )}
                 </div>
@@ -299,7 +297,7 @@ export default function Dashboard() {
                             <div className="text-right">
                                 <p className="text-[9px] font-bold text-white/40 uppercase tracking-widest leading-none mb-1">Aylık Toplam Gider</p>
                                 <p className="text-xl font-black text-rose-400 leading-none tabular-nums">
-                                    ₺{currentMonthExpenses.reduce((sum, item) => sum + item.total, 0).toLocaleString('tr-TR')}
+                                    ₺{currentMonthExpenses.reduce((sum, item: any) => sum + item.total, 0).toLocaleString('tr-TR')}
                                 </p>
                             </div>
                         </div>
@@ -317,7 +315,7 @@ export default function Dashboard() {
                                             </span>
                                         </div>
                                         <div className="space-y-1">
-                                            {group.items.map((item, iIdx) => (
+                                            {group.items.map((item: any, iIdx: number) => (
                                                 <div key={iIdx} className="flex justify-between items-center opacity-70 group/item">
                                                     <span className="text-[9px] font-medium text-white/70 truncate pr-4">
                                                         {item.name}

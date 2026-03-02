@@ -341,6 +341,7 @@ export default function FamilyPage() {
             uid: member.id,
             email: member.email,
             displayName: member.displayName,
+            photoURL: member.photoURL || null,
             role: member.role || 'member'
         });
         navigate('/');
