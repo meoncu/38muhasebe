@@ -11,6 +11,7 @@ import ImpersonationBanner from '@/components/auth/ImpersonationBanner';
 import DebugPage from '@/pages/DebugPage';
 import CashFlowPage from '@/pages/CashFlowPage';
 import AdminPanel from '@/pages/AdminPanel';
+import SearchPage from '@/pages/SearchPage';
 
 function App() {
   return (
@@ -88,6 +89,14 @@ function App() {
           element={
             <ProtectedRoute>
               <CashFlowPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/search"
+          element={
+            <ProtectedRoute>
+              <SearchPage />
             </ProtectedRoute>
           }
         />

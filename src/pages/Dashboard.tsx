@@ -1,15 +1,15 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Card, CardContent, CardHeader } from '@/components/ui/card';
-import { AlertCircle, Calendar, Home, Users, PieChart, Settings, Edit2, Check, X, Folder, Bell, Bug, ShieldCheck } from 'lucide-react';
+import { Card, CardHeader } from '@/components/ui/card';
+import { AlertCircle, PieChart, Edit2, Check, X, Bug, ShieldCheck, Search, Bell, Calendar, Home, Folder, Users, Settings, ChevronLeft, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/store/authStore';
 import { updateProfile } from 'firebase/auth';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { collection, query, where, onSnapshot, doc, updateDoc, Timestamp } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, doc, updateDoc, Timestamp, deleteDoc, getDocs } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import { format, differenceInDays, isBefore, startOfDay, isSameMonth } from 'date-fns';
+import { format, differenceInDays, isBefore, startOfDay, isSameMonth, addMonths, subMonths } from 'date-fns';
 import { tr } from 'date-fns/locale';
 
 const CURRENCIES = [
@@ -26,19 +26,14 @@ export default function Dashboard() {
     const [newName, setNewName] = useState("");
     const [loading, setLoading] = useState(false);
 
-    // Balance States
-    const [totalIncome, setTotalIncome] = useState(0);
-    const [totalExpense, setTotalExpense] = useState(0);
-    const [balance, setBalance] = useState(0);
+    // Main States
     const [overdueExpenses, setOverdueExpenses] = useState<any[]>([]);
     const [upcomingExpenses, setUpcomingExpenses] = useState<any[]>([]);
-    const [recentActivity, setRecentActivity] = useState<any[]>([]);
     const [pendingMembers, setPendingMembers] = useState<any[]>([]);
     const [myRole, setMyRole] = useState<'admin' | 'member'>(activeUser?.email === 'meoncu@gmail.com' ? 'admin' : 'member');
     const [familyId, setFamilyId] = useState<string | null>(null);
-    const [familyTotalBalance, setFamilyTotalBalance] = useState(0);
-    const [familyAssets, setFamilyAssets] = useState<Record<string, Record<string, number>>>({});
-    const [personalAssets, setPersonalAssets] = useState<Record<string, Record<string, number>>>({});
+    const [currentMonthExpenses, setCurrentMonthExpenses] = useState<any[]>([]);
+    const [selectedMonth, setSelectedMonth] = useState(new Date());
 
     // Fetch live rates
     useEffect(() => {
@@ -69,76 +64,107 @@ export default function Dashboard() {
     useEffect(() => {
         if (!activeUser) return;
 
-        // Fetch ALL Expenses for Dashboard
-        const qAll = query(
-            collection(db, "expenses"),
-            where("userId", "==", activeUser.uid)
-        );
+        // Fetch Categories first to filter orphaned expenses
+        const qCats = query(collection(db, "categories"), where("userId", "==", activeUser.uid));
+        const unsubCats = onSnapshot(qCats, (catSnap) => {
+            const validCatIds = new Set();
+            catSnap.forEach(d => validCatIds.add(d.id));
 
-        const unsubscribe = onSnapshot(qAll, (snapshot) => {
-            const today = startOfDay(new Date());
-            const overdue: any[] = [];
-            const upcoming: any[] = [];
-            const recent: any[] = [];
-            let incomeSum = 0;
-            let expenseSum = 0;
+            // Fetch ALL Expenses for Dashboard
+            const qAll = query(
+                collection(db, "expenses"),
+                where("userId", "==", activeUser.uid)
+            );
 
-            snapshot.forEach((doc) => {
-                const data = doc.data();
-                const item = { id: doc.id, ...data };
-                const dueDate = data.dueDate?.seconds ? new Date(data.dueDate.seconds * 1000) : null;
-                const date = data.date?.seconds ? new Date(data.date.seconds * 1000) : null;
-                const isIncome = data.type === 'income';
-                const currency = data.currency || 'TRY';
-                const amount = data.amount || 0;
+            const unsubscribe = onSnapshot(qAll, (snapshot) => {
+                const today = startOfDay(new Date());
+                const overdue: any[] = [];
+                const upcoming: any[] = [];
+                const recent: any[] = [];
+                let incomeSum = 0;
+                let expenseSum = 0;
 
-                const rate = rates[currency] || 1;
-                const amountInTry = amount * rate;
+                // Personal assets breakdown and Monthly Summary Items
+                const pAssets: Record<string, Record<string, number>> = {};
+                const catMap: Record<string, { total: number, items: any[] }> = {};
 
-                if (data.status === 'paid') {
-                    if (isIncome) incomeSum += amountInTry;
-                    else expenseSum += amountInTry;
-                    recent.push({ ...item, dateObj: date || new Date(0) });
-                }
+                snapshot.forEach((doc) => {
+                    const data = doc.data();
+                    const item = { id: doc.id, ...data };
 
-                if (data.status === 'unpaid' && dueDate && data.type === 'expense') {
-                    if (isBefore(dueDate, today)) {
-                        overdue.push({ ...item, dueDate });
-                    } else if (isSameMonth(dueDate, today)) {
-                        upcoming.push({ ...item, dueDate });
+                    // SKIP if the category no longer exists
+                    if (!validCatIds.has(data.categoryId)) return;
+
+                    const dueDate = data.dueDate?.seconds ? new Date(data.dueDate.seconds * 1000) : null;
+                    const date = data.date?.seconds ? new Date(data.date.seconds * 1000) : null;
+                    const isIncome = data.type === 'income';
+                    const currency = data.currency || 'TRY';
+                    const amount = data.amount || 0;
+
+                    const rate = rates[currency] || 1;
+                    const amountInTry = amount * rate;
+
+                    if (data.status === 'paid') {
+                        if (isIncome) incomeSum += amountInTry;
+                        else expenseSum += amountInTry;
+                        recent.push({ ...item, dateObj: date || new Date(0) });
                     }
-                }
+
+                    if (data.status === 'unpaid' && dueDate && data.type === 'expense' && !data.isAutoPay) {
+                        if (isBefore(dueDate, today)) {
+                            overdue.push({ ...item, dueDate });
+                        } else if (isSameMonth(dueDate, today)) {
+                            upcoming.push({ ...item, dueDate });
+                        }
+                    }
+
+                    // Status: Both paid and unpaid for summary - Filter by ENTRY DATE (date) as requested
+                    if (data.type === 'expense') {
+                        const baseDate = data.date?.seconds ? new Date(data.date.seconds * 1000) :
+                            (data.dueDate?.seconds ? new Date(data.dueDate.seconds * 1000) : null);
+
+                        if (baseDate && isSameMonth(baseDate, selectedMonth)) {
+                            const cat = data.categoryName || 'Diğer';
+                            if (!catMap[cat]) catMap[cat] = { total: 0, items: [] };
+                            catMap[cat].total += amountInTry;
+                            catMap[cat].items.push({
+                                name: data.name,
+                                amount: data.amount,
+                                currency: currency,
+                                status: data.status
+                            });
+                        }
+                    }
+
+                    // Assets calculation
+                    if (data.status === 'paid') {
+                        const loc = data.location || 'Kasa';
+                        if (!pAssets[currency]) pAssets[currency] = {};
+                        if (!pAssets[currency][loc]) pAssets[currency][loc] = 0;
+                        if (data.type === 'income') pAssets[currency][loc] += amount;
+                        else pAssets[currency][loc] -= amount;
+                    }
+                });
+
+                overdue.sort((a, b) => a.dueDate.getTime() - b.dueDate.getTime());
+                upcoming.sort((a, b) => a.dueDate.getTime() - b.dueDate.getTime());
+
+                setOverdueExpenses(overdue);
+                setUpcomingExpenses(upcoming.slice(0, 5));
+
+                const sortedSummary = Object.entries(catMap).map(([name, data]) => ({
+                    name,
+                    total: data.total,
+                    items: data.items.sort((a, b) => b.amount - a.amount)
+                })).sort((a, b) => b.total - a.total);
+                setCurrentMonthExpenses(sortedSummary);
             });
 
-            overdue.sort((a, b) => a.dueDate.getTime() - b.dueDate.getTime());
-            upcoming.sort((a, b) => a.dueDate.getTime() - b.dueDate.getTime());
-            recent.sort((a, b) => b.dateObj.getTime() - a.dateObj.getTime());
-
-            setOverdueExpenses(overdue);
-            setUpcomingExpenses(upcoming.slice(0, 5));
-            setRecentActivity(recent.slice(0, 8));
-            setTotalIncome(incomeSum);
-            setTotalExpense(expenseSum);
-            setBalance(incomeSum - expenseSum);
-
-            // Personal assets breakdown
-            const pAssets: Record<string, Record<string, number>> = {};
-            recent.forEach(item => {
-                const curr = item.currency || 'TRY';
-                const loc = item.location || 'Kasa';
-                const amt = item.amount || 0;
-                if (!pAssets[curr]) pAssets[curr] = {};
-                if (!pAssets[curr][loc]) pAssets[curr][loc] = 0;
-                if (item.type === 'income') pAssets[curr][loc] += amt;
-                else pAssets[curr][loc] -= amt;
-            });
-            setPersonalAssets(pAssets);
+            return () => unsubscribe();
         });
 
         // Fetch User Info
         const isOwner = activeUser.email === 'meoncu@gmail.com';
-        if (isOwner) setMyRole('admin');
-
         const unsubscribeUser = onSnapshot(doc(db, "users", activeUser.uid), (docSnap) => {
             if (docSnap.exists()) {
                 const data = docSnap.data();
@@ -148,217 +174,167 @@ export default function Dashboard() {
         });
 
         return () => {
-            unsubscribe();
+            unsubCats();
             unsubscribeUser();
         };
-    }, [activeUser, rates]);
-
-    // Family Assets Effect
-    useEffect(() => {
-        if (!familyId) {
-            setFamilyAssets({});
-            setFamilyTotalBalance(0);
-            return;
-        }
-
-        const qFamily = query(
-            collection(db, "expenses"),
-            where("familyId", "==", familyId),
-            where("status", "==", "paid")
-        );
-        const unsubscribeFamily = onSnapshot(qFamily, (snapshot) => {
-            const assets: Record<string, Record<string, number>> = {};
-            snapshot.forEach((doc) => {
-                const data = doc.data();
-                const curr = data.currency || 'TRY';
-                const loc = data.location || 'Kasa';
-                const amount = data.amount || 0;
-                if (!assets[curr]) assets[curr] = {};
-                if (!assets[curr][loc]) assets[curr][loc] = 0;
-                if (data.type === 'income') assets[curr][loc] += amount;
-                else assets[curr][loc] -= amount;
-            });
-            setFamilyAssets(assets);
-
-            let totalTL = 0;
-            Object.entries(assets).forEach(([curr, locs]) => {
-                const rate = rates[curr] || 1;
-                const currencyTotal = Object.values(locs).reduce((a: number, b: number) => a + b, 0);
-                totalTL += (currencyTotal * rate);
-            });
-            setFamilyTotalBalance(totalTL);
-        });
-        return () => unsubscribeFamily();
-    }, [familyId, rates]);
+    }, [activeUser, rates, selectedMonth]);
 
     // Pending Members Effect
     useEffect(() => {
-        if (!user || myRole !== 'admin') {
+        if (!activeUser || myRole !== 'admin') {
             setPendingMembers([]);
             return;
         }
 
-        const isSuperAdmin = user.email === 'meoncu@gmail.com';
+        const q = familyId
+            ? query(collection(db, "users"), where("familyId", "==", familyId), where("status", "==", "pending"))
+            : query(collection(db, "users"), where("status", "==", "pending"));
 
-        // Use a generic query and filter in memory to catch all unapproved users
-        const q = query(collection(db, "users"));
-
-        return onSnapshot(q, (snapshot) => {
-            const p: any[] = [];
-            snapshot.forEach(docSnap => {
-                const data = docSnap.data();
-                const isOwner = data.email === 'meoncu@gmail.com';
-
-                // If I am super-admin, I see ALL unapproved.
-                // If I am family admin, I see only MY family unapproved.
-                if (!isOwner && data.isApproved !== true) {
-                    if (isSuperAdmin || (familyId && data.familyId === familyId)) {
-                        p.push({ id: docSnap.id, ...data });
-                    }
+        return onSnapshot(q, (snap) => {
+            const members: any[] = [];
+            snap.forEach(d => {
+                if (d.id !== activeUser.uid) {
+                    members.push({ id: d.id, ...d.data() });
                 }
             });
-            setPendingMembers(p);
+            setPendingMembers(members);
         });
-    }, [user, myRole, familyId]);
+    }, [activeUser, myRole, familyId]);
 
-    const handlePayExpense = async (expId: string) => {
+    const handlePayExpense = async (id: string) => {
+        if (!activeUser) return;
         try {
-            await updateDoc(doc(db, "expenses", expId), {
+            await updateDoc(doc(db, "expenses", id), {
                 status: 'paid',
-                paidBy: user?.uid,
-                paidByEmail: user?.displayName || user?.email,
+                paidBy: activeUser.uid,
+                paidByEmail: activeUser.displayName || activeUser.email,
                 date: Timestamp.now()
             });
-        } catch (error) {
-            console.error("Payment error:", error);
+        } catch (err) {
+            console.error(err);
         }
     };
 
-    const handleApproveMember = async (targetUid: string) => {
-        try { await updateDoc(doc(db, "users", targetUid), { isApproved: true }); } catch (err) { console.error(err); }
+    const handleApproveMember = async (id: string) => {
+        await updateDoc(doc(db, "users", id), { status: 'active' });
     };
 
-    const handleRejectMember = async (targetUid: string) => {
-        if (!confirm("Reddetmek istiyor musunuz?")) return;
-        try { await updateDoc(doc(db, "users", targetUid), { familyId: null, isApproved: false }); } catch (err) { console.error(err); }
+    const handleRejectMember = async (id: string) => {
+        await deleteDoc(doc(db, "users", id));
     };
 
     const handleUpdateName = async () => {
-        if (!user || !newName.trim()) return;
+        if (!user || !newName) return;
         setLoading(true);
         try {
             await updateProfile(user, { displayName: newName });
             setIsEditing(false);
-            window.location.reload();
         } catch (err) {
-            console.error("Name update error:", err);
+            console.error(err);
         } finally {
             setLoading(false);
         }
     };
 
     return (
-        <div className="min-h-screen bg-background text-foreground pb-24 font-sans transition-colors duration-300">
-            <div className="p-6 pt-12">
-                {/* Header */}
-                <div className="flex justify-between items-center mb-8">
-                    <div className="flex-1">
-                        <h2 className="text-muted-foreground text-sm font-medium">Hoş geldiniz,</h2>
-                        {isEditing ? (
-                            <div className="flex items-center gap-2 mt-1 max-w-[250px]">
-                                <Input value={newName} onChange={(e) => setNewName(e.target.value)} className="h-8 text-lg font-bold" autoFocus />
-                                <Button size="icon" variant="ghost" className="h-8 w-8 text-green-600" onClick={handleUpdateName} disabled={loading}><Check size={18} /></Button>
-                                <Button size="icon" variant="ghost" className="h-8 w-8 text-red-500" onClick={() => setIsEditing(false)}><X size={18} /></Button>
-                            </div>
-                        ) : (
-                            <div className="flex items-center gap-2 group">
-                                <h1 className="text-2xl font-bold tracking-tight truncate max-w-[250px]">{user?.displayName || user?.email || 'İsimsiz'}</h1>
-                                <button onClick={() => { setNewName(user?.displayName || ""); setIsEditing(true); }} className="opacity-0 group-hover:opacity-100 transition-opacity p-1 text-muted-foreground hover:text-primary"><Edit2 size={16} /></button>
-                            </div>
-                        )}
-                        <div className="flex items-center gap-3">
-                            {user?.email === 'meoncu@gmail.com' && (
-                                <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    onClick={() => navigate('/admin')}
-                                    className="h-10 w-10 rounded-xl bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20 shadow-sm border border-emerald-500/10"
-                                >
-                                    <ShieldCheck size={20} />
-                                </Button>
-                            )}
-                            {myRole === 'admin' && (
-                                <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    onClick={() => navigate('/debug')}
-                                    className="h-10 w-10 rounded-xl bg-orange-500/10 text-orange-600 hover:bg-orange-500/20 shadow-sm border border-orange-500/10"
-                                >
-                                    <Bug size={20} />
-                                </Button>
-                            )}
-                            <div className="h-10 w-10 rounded-full bg-primary/10 text-primary flex items-center justify-center border border-primary/20 overflow-hidden shadow-sm">
-                                {user?.photoURL ? <img src={user.photoURL} className="w-full h-full object-cover" /> : <span className="text-sm font-bold">{(user?.displayName || user?.email)?.[0]?.toUpperCase()}</span>}
-                            </div>
+        <div className="min-h-screen bg-slate-50 font-sans pb-24 animate-fade-in">
+            {/* Header */}
+            <header className="p-6 pt-10 pb-4 flex items-center justify-between">
+                <div>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mb-1">Merhaba,</p>
+                    {isEditing ? (
+                        <div className="flex items-center gap-2">
+                            <Input value={newName} onChange={e => setNewName(e.target.value)} className="h-8 w-40 font-bold" autoFocus />
+                            <Button size="icon" variant="ghost" className="h-8 w-8 text-emerald-500" onClick={handleUpdateName} disabled={loading}><Check size={18} /></Button>
+                            <Button size="icon" variant="ghost" className="h-8 w-8 text-rose-500" onClick={() => setIsEditing(false)}><X size={18} /></Button>
                         </div>
+                    ) : (
+                        <div className="flex items-center gap-2 group">
+                            <h1 className="text-3xl font-black tracking-tighter text-slate-900 lowercase">{activeUser.displayName || 'Kullanıcı'}</h1>
+                            <button onClick={() => { setIsEditing(true); setNewName(activeUser.displayName || ''); }} className="opacity-0 group-hover:opacity-100 transition-opacity"><Edit2 size={14} className="text-muted-foreground" /></button>
+                        </div>
+                    )}
+                </div>
+                <div className="flex gap-2">
+                    {myRole === 'admin' && (
+                        <Button variant="ghost" size="icon" onClick={() => navigate('/admin')} className="bg-emerald-50 text-emerald-600 rounded-xl"><ShieldCheck size={20} /></Button>
+                    )}
+                    <Button variant="ghost" size="icon" onClick={() => navigate('/debug')} className="bg-amber-50 text-orange-600 rounded-xl"><Bug size={20} /></Button>
+                    <Button variant="ghost" size="icon" onClick={() => navigate('/search')} className="bg-blue-50 text-blue-600 rounded-xl"><Search size={20} /></Button>
+                    <div className="w-10 h-10 rounded-2xl overflow-hidden border-2 border-white shadow-sm cursor-pointer" onClick={() => navigate('/profile')}>
+                        {activeUser?.photoURL ? <img src={activeUser.photoURL} alt="profile" className="w-full h-full object-cover" /> : <div className="w-full h-full bg-slate-200 flex items-center justify-center font-bold text-slate-500">{activeUser?.displayName?.[0] || 'U'}</div>}
                     </div>
                 </div>
+            </header>
 
-                {/* Compact Balance Card */}
-                <Card
-                    className="bg-primary text-primary-foreground border-none shadow-xl mb-6 relative overflow-hidden group hover:shadow-2xl transition-all duration-300 cursor-pointer"
-                    onClick={() => navigate('/cashflow')}
-                >
-                    <div className="absolute -top-12 -right-12 p-4 opacity-5 group-hover:opacity-10 transition-opacity text-white pointer-events-none"><PieChart size={180} /></div>
-                    <CardHeader className="p-5 pb-0">
-                        <div className="flex justify-between items-start gap-4">
-                            <div className="flex-1">
-                                <p className="text-[10px] font-bold text-primary-foreground/60 uppercase tracking-widest mb-1">Kişisel Kasa</p>
-                                <div className="text-3xl font-black text-white leading-none">₺{balance.toLocaleString('tr-TR')}</div>
-
-                                {/* Quick Mini Stats */}
-                                <div className="flex gap-4 mt-4">
-                                    <div className="flex items-center gap-1.5 grayscale opacity-80">
-                                        <div className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                                        <span className="text-[10px] font-bold">₺{totalIncome.toLocaleString('tr-TR')}</span>
-                                    </div>
-                                    <div className="flex items-center gap-1.5 grayscale opacity-80">
-                                        <div className="w-1.5 h-1.5 rounded-full bg-rose-400" />
-                                        <span className="text-[10px] font-bold">₺{totalExpense.toLocaleString('tr-TR')}</span>
-                                    </div>
+            <div className="px-6 space-y-6">
+                {/* Monthly Summary High-End Card */}
+                <Card className="border-none shadow-2xl bg-[#0f172a] overflow-hidden rounded-[2.5rem]">
+                    <div className="absolute top-0 right-0 w-64 h-64 bg-primary/10 rounded-full -mr-32 -mt-32 blur-3xl opacity-50" />
+                    <CardHeader className="p-4">
+                        <div className="flex justify-between items-center mb-4 text-white">
+                            <div className="flex items-center gap-2">
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-8 w-8 text-white hover:bg-white/10"
+                                    onClick={() => setSelectedMonth(subMonths(selectedMonth, 1))}
+                                >
+                                    <ChevronLeft size={20} />
+                                </Button>
+                                <div className="bg-white/10 px-2.5 py-1 rounded-lg border border-white/10">
+                                    <p className="text-[10px] font-black uppercase tracking-widest text-primary-foreground/80">
+                                        {format(selectedMonth, 'MMMM yyyy', { locale: tr })}
+                                    </p>
                                 </div>
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-8 w-8 text-white hover:bg-white/10"
+                                    onClick={() => setSelectedMonth(addMonths(selectedMonth, 1))}
+                                >
+                                    <ChevronRight size={20} />
+                                </Button>
                             </div>
-
-                            <div className="flex flex-col items-end gap-2 max-w-[140px]">
-                                {/* Assets */}
-                                {Object.entries(myRole === 'admin' && familyId ? familyAssets : personalAssets).map(([curr, locs]) => {
-                                    const currencySymbol = CURRENCIES.find(c => c.code === curr)?.symbol || curr;
-                                    const total = Object.values(locs).reduce((a, b) => (a as number) + (b as number), 0);
-                                    if (total === 0) return null;
-                                    return (
-                                        <div key={curr} className="flex flex-col items-end leading-tight border-r-2 border-white/10 pr-2 mr-1">
-                                            <span className="text-sm font-black text-white">{currencySymbol}{(total as number).toLocaleString('tr-TR')}</span>
-                                            <div className="flex flex-wrap justify-end gap-1 opacity-60">
-                                                {Object.entries(locs as any).filter(([_, a]) => (a as number) !== 0).map(([l, a]) => (
-                                                    <span key={l} className="text-[7px] font-bold uppercase">{l[0]}:{(a as number)}</span>
-                                                ))}
-                                            </div>
-                                        </div>
-                                    );
-                                })}
-
-                                {myRole === 'admin' && familyId && (
-                                    <button
-                                        onClick={(e) => { e.stopPropagation(); navigate('/family'); }}
-                                        className="mt-1 flex items-center gap-1.5 px-2 py-1 bg-white/5 hover:bg-white/10 rounded-lg text-white/40 hover:text-white transition-all text-[8px] font-black uppercase tracking-widest border border-white/5"
-                                    >
-                                        <Users size={8} /> Aile: ₺{familyTotalBalance.toLocaleString('tr-TR')}
-                                    </button>
-                                )}
+                            <div className="text-right">
+                                <p className="text-[9px] font-bold text-white/40 uppercase tracking-widest leading-none mb-1">Aylık Toplam Gider</p>
+                                <p className="text-xl font-black text-rose-400 leading-none tabular-nums">
+                                    ₺{currentMonthExpenses.reduce((sum, item) => sum + item.total, 0).toLocaleString('tr-TR')}
+                                </p>
                             </div>
                         </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-4">
+                            {currentMonthExpenses.length > 0 ? (
+                                currentMonthExpenses.map((group, idx) => (
+                                    <div key={idx} className="flex flex-col gap-1.5 border-l border-white/10 pl-3">
+                                        <div className="flex justify-between items-center mb-0.5">
+                                            <span className="text-[10px] font-black text-white uppercase tracking-wider">
+                                                {group.name}
+                                            </span>
+                                            <span className="text-[10px] font-black tabular-nums text-white/40">
+                                                ₺{Math.round(group.total).toLocaleString('tr-TR')}
+                                            </span>
+                                        </div>
+                                        <div className="space-y-1">
+                                            {group.items.map((item, iIdx) => (
+                                                <div key={iIdx} className="flex justify-between items-center opacity-70 group/item">
+                                                    <span className="text-[9px] font-medium text-white/70 truncate pr-4">
+                                                        {item.name}
+                                                    </span>
+                                                    <span className="text-[9px] font-bold tabular-nums text-white/90">
+                                                        {CURRENCIES.find(c => c.code === item.currency)?.symbol || '₺'}{item.amount.toLocaleString('tr-TR')}
+                                                    </span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                ))
+                            ) : (
+                                <p className="text-[10px] text-white/40 italic py-2">Bu ay henüz bir gider kaydı bulunmuyor.</p>
+                            )}
+                        </div>
                     </CardHeader>
-                    <CardContent className="p-5" />
                 </Card>
 
                 {/* Notifications / Pending Approval Panel */}
@@ -375,8 +351,8 @@ export default function Dashboard() {
                                         <div><p className="font-bold text-sm leading-tight">{m.displayName || m.email}</p><p className="text-[10px] text-muted-foreground">Sisteme giriş isteği</p></div>
                                     </div>
                                     <div className="flex gap-2">
-                                        <Button size="icon" variant="ghost" className="h-8 w-8 text-rose-500" onClick={() => handleRejectMember(m.id)}><X size={18} /></Button>
-                                        <Button size="sm" className="h-8 bg-emerald-600 text-[10px] font-black" onClick={() => handleApproveMember(m.id)}>ONAYLA</Button>
+                                        <Button size="sm" variant="outline" className="h-8 text-[10px] font-black uppercase text-rose-500" onClick={() => handleRejectMember(m.id)}>Reddet</Button>
+                                        <Button size="sm" className="h-8 bg-emerald-500 hover:bg-emerald-600 text-white text-[10px] font-black uppercase" onClick={() => handleApproveMember(m.id)}>Onayla</Button>
                                     </div>
                                 </Card>
                             ))}
@@ -384,72 +360,48 @@ export default function Dashboard() {
                     </section>
                 )}
 
-                {/* Upcoming */}
-                {myRole === 'admin' && upcomingExpenses.length > 0 && (
-                    <section className="mb-8">
-                        <div className="flex items-center gap-2 mb-4"><Calendar size={18} className="text-primary" /><h3 className="text-xs uppercase font-black tracking-widest text-foreground/70">Yaklaşan Ödemeler</h3></div>
-                        <div className="space-y-3">
-                            {upcomingExpenses.map(exp => {
-                                const diff = differenceInDays(exp.dueDate, startOfDay(new Date()));
-                                return (
-                                    <div key={exp.id} className="flex items-center justify-between p-4 rounded-xl bg-card border border-border group hover:border-primary/50 transition-all cursor-pointer" onClick={() => navigate(`/categories?id=${exp.categoryId}`)}>
-                                        <div className="flex items-center gap-4">
-                                            <div className="h-10 w-10 rounded-xl bg-primary/10 flex items-center justify-center font-bold text-[9px] text-center leading-tight px-1 text-primary">{exp.categoryName || 'GRUP'}</div>
-                                            <div><p className="font-bold text-sm">{exp.name}</p><p className="text-[10px] text-muted-foreground">{diff === 0 ? "Bugün" : `${diff} gün içinde`}</p></div>
-                                        </div>
-                                        <div className="flex items-center gap-3">
-                                            <span className="font-black text-sm">{CURRENCIES.find(c => c.code === (exp.currency || 'TRY'))?.symbol || '₺'}{exp.amount?.toLocaleString('tr-TR')}</span>
-                                            <Button size="sm" className="h-7 bg-emerald-600 text-[10px] font-black" onClick={(e) => { e.stopPropagation(); handlePayExpense(exp.id); }}>ÖDE</Button>
-                                        </div>
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    </section>
-                )}
-
-                {/* Overdue */}
-                {myRole === 'admin' && overdueExpenses.length > 0 && (
-                    <section className="mb-8">
-                        <div className="flex items-center gap-2 mb-4 text-rose-600"><AlertCircle size={18} /><h3 className="text-xs uppercase font-black tracking-widest">Geciken Ödemeler</h3></div>
-                        <div className="space-y-3">
-                            {overdueExpenses.map(exp => {
-                                const diff = differenceInDays(startOfDay(new Date()), exp.dueDate);
-                                return (
-                                    <div key={exp.id} className="flex items-center justify-between p-4 rounded-xl bg-rose-500/5 border border-rose-500/20 group hover:bg-rose-500/10 transition-all cursor-pointer" onClick={() => navigate(`/categories?id=${exp.categoryId}`)}>
-                                        <div className="flex items-center gap-4">
-                                            <div className="h-10 w-10 rounded-xl bg-rose-500/10 flex items-center justify-center font-bold text-[9px] text-center leading-tight px-1 text-rose-600">{exp.categoryName || '!'}</div>
-                                            <div><p className="font-bold text-sm text-rose-700">{exp.name}</p><p className="text-[10px] text-rose-600/70 font-bold">{diff} GÜN GECİKTİ</p></div>
-                                        </div>
-                                        <div className="flex items-center gap-3">
-                                            <span className="font-black text-sm text-rose-700">{CURRENCIES.find(c => c.code === (exp.currency || 'TRY'))?.symbol || '₺'}{exp.amount?.toLocaleString('tr-TR')}</span>
-                                            <Button size="sm" className="h-7 bg-rose-600 text-[10px] font-black" onClick={(e) => { e.stopPropagation(); handlePayExpense(exp.id); }}>ÖDE</Button>
-                                        </div>
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    </section>
-                )}
-
-                {/* Recent Activity */}
+                {/* Overdue Expenses Section */}
                 <section>
-                    <h3 className="text-xs uppercase font-black tracking-widest text-foreground/50 mb-4">Son Hareketler</h3>
-                    <div className="bg-card rounded-2xl border border-border shadow-sm overflow-hidden">
-                        {recentActivity.length > 0 ? (
-                            recentActivity.map(exp => (
-                                <div key={exp.id} className="flex justify-between items-center p-4 hover:bg-muted/50 transition-colors border-b border-border/40 last:border-0">
-                                    <div className="flex items-center gap-3">
-                                        <div className={cn("w-2 h-2 rounded-full", exp.type === 'income' ? "bg-emerald-500" : "bg-rose-500")} />
-                                        <div><p className="font-bold text-sm">{exp.name}</p><p className="text-[10px] text-muted-foreground">{exp.date?.seconds ? format(new Date(exp.date.seconds * 1000), "d MMM", { locale: tr }) : '-'}</p></div>
+                    <div className="flex items-center justify-between mb-4">
+                        <div className="flex items-center gap-2 text-rose-600">
+                            <AlertCircle size={18} />
+                            <h3 className="text-xs uppercase font-black tracking-widest">Geciken Ödemeler</h3>
+                        </div>
+                        {overdueExpenses.length > 0 && (
+                            <span className="bg-rose-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full animate-pulse">
+                                {overdueExpenses.length} ADET
+                            </span>
+                        )}
+                    </div>
+
+                    <div className="space-y-3">
+                        {overdueExpenses.length > 0 ? (
+                            overdueExpenses.map(exp => {
+                                const dueDate = exp.dueDate?.seconds ? new Date(exp.dueDate.seconds * 1000) : new Date();
+                                const diff = differenceInDays(startOfDay(new Date()), startOfDay(dueDate));
+                                return (
+                                    <div key={exp.id} className="flex items-center justify-between p-4 rounded-2xl bg-rose-500/[0.03] border border-rose-500/10 group hover:bg-rose-500/[0.06] transition-all cursor-pointer" onClick={() => navigate(`/categories?id=${exp.categoryId}`)}>
+                                        <div className="flex items-center gap-4">
+                                            <div className="h-10 w-10 rounded-xl bg-rose-500/10 flex items-center justify-center font-bold text-[9px] text-center leading-tight px-1 text-rose-600 shadow-sm">
+                                                {exp.categoryName?.substring(0, 4) || '!'}
+                                            </div>
+                                            <div>
+                                                <p className="font-bold text-sm text-rose-900 dark:text-rose-100">{exp.name}</p>
+                                                <p className="text-[10px] text-rose-600 font-bold uppercase tracking-tight">{diff} GÜN GECİKTİ</p>
+                                            </div>
+                                        </div>
+                                        <div className="flex items-center gap-3">
+                                            <span className="font-black text-sm text-rose-700 tabular-nums">{CURRENCIES.find(c => c.code === (exp.currency || 'TRY'))?.symbol || '₺'}{exp.amount?.toLocaleString('tr-TR')}</span>
+                                            <Button size="sm" className="h-8 bg-rose-600 hover:bg-rose-700 text-white text-[10px] font-black rounded-lg px-3" onClick={(e) => { e.stopPropagation(); handlePayExpense(exp.id); }}>ÖDE</Button>
+                                        </div>
                                     </div>
-                                    <span className={cn("font-black text-sm tabular-nums", exp.type === 'income' ? "text-emerald-600" : "text-rose-600")}>
-                                        {exp.type === 'income' ? '+' : '-'}{CURRENCIES.find(c => c.code === (exp.currency || 'TRY'))?.symbol || '₺'}{exp.amount?.toLocaleString('tr-TR')}
-                                    </span>
-                                </div>
-                            ))
+                                );
+                            })
                         ) : (
-                            <p className="text-sm text-muted-foreground text-center py-8 italic font-medium">Henüz bir hareket bulunmuyor.</p>
+                            <div className="bg-emerald-500/5 border border-dashed border-emerald-500/20 rounded-3xl py-12 text-center group transition-all hover:bg-emerald-500/10">
+                                <Check className="w-12 h-12 mx-auto mb-3 text-emerald-500 opacity-20 group-hover:opacity-40 transition-opacity" />
+                                <p className="text-sm text-emerald-600 font-bold uppercase tracking-widest px-4">Harika! Gecikmiş ödemeniz bulunmuyor.</p>
+                            </div>
                         )}
                     </div>
                 </section>

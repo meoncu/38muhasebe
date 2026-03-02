@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, CardContent } from '@/components/ui/card';
-import { ChevronLeft, TrendingUp, TrendingDown, Wallet, Calendar, ChevronRight, ChevronDown, Receipt, ArrowUpRight, ArrowDownRight } from 'lucide-react';
+import { ChevronLeft, TrendingUp, TrendingDown, Wallet, Calendar, ChevronRight, ChevronDown, Receipt, ArrowUpRight, ArrowDownRight, Banknote } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/store/authStore';
 import { collection, query, where, onSnapshot } from 'firebase/firestore';
@@ -18,6 +18,7 @@ interface Transaction {
     categoryId: string;
     date: any;
     currency: string;
+    isAutoPay?: boolean;
 }
 
 export default function CashFlowPage() {
@@ -217,7 +218,10 @@ export default function CashFlowPage() {
                                                                     <div className="flex items-center gap-3">
                                                                         <Receipt size={14} className="text-muted-foreground" />
                                                                         <div>
-                                                                            <p className="text-xs font-bold leading-none mb-1">{item.name}</p>
+                                                                            <div className="flex items-center gap-1.5 mb-1">
+                                                                                <p className="text-xs font-bold leading-none">{item.name}</p>
+                                                                                {item.isAutoPay && <Banknote size={10} className="text-emerald-500" />}
+                                                                            </div>
                                                                             <p className="text-[9px] text-muted-foreground uppercase">{format(new Date(item.date.seconds * 1000), 'd MMMM', { locale: tr })}</p>
                                                                         </div>
                                                                     </div>

@@ -3,12 +3,12 @@ import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { ChevronLeft, Plus, Folder, ShoppingBag, Home, Truck, Wifi, Trash2, Check, Clock, Wallet, Banknote, TrendingUp, TrendingDown, Users, PieChart, Settings, Share2, Edit2, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Plus, Folder, ShoppingBag, Home, Truck, Wifi, Trash2, Check, Clock, Wallet, Banknote, TrendingUp, TrendingDown, Users, PieChart, Settings, Share2, Edit2, X, Calendar } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/store/authStore';
 import { collection, addDoc, query, where, onSnapshot, deleteDoc, doc, updateDoc, increment, or, getDocs, writeBatch } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import { format, startOfMonth, endOfMonth } from 'date-fns';
+import { format, startOfMonth, endOfMonth, addMonths, subMonths, isSameMonth } from 'date-fns';
 import { tr } from 'date-fns/locale';
 
 interface Category {
@@ -36,6 +36,7 @@ interface Expense {
     paidBy?: string;
     paidByEmail?: string;
     type?: 'income' | 'expense';
+    isAutoPay?: boolean;
 }
 
 const CURRENCIES = [
@@ -78,6 +79,7 @@ export default function CategoriesPage() {
 
     // Edit Category State
     const [editingCatId, setEditingCatId] = useState<string | null>(null);
+    const [selectedMonth, setSelectedMonth] = useState(new Date());
 
     // Forms
     const [catName, setCatName] = useState("");
@@ -100,6 +102,7 @@ export default function CategoriesPage() {
     const [editExpAmount, setEditExpAmount] = useState("");
     const [editExpDate, setEditExpDate] = useState("");
     const [editExpCurrency, setEditExpCurrency] = useState('TRY');
+    const [editIsAutoPay, setEditIsAutoPay] = useState(false);
     const [allExpenses, setAllExpenses] = useState<Expense[]>([]);
 
     // Fetch user's familyId and role
@@ -369,7 +372,8 @@ export default function CategoriesPage() {
                 name: editExpName,
                 amount: newAmount,
                 currency: editExpCurrency,
-                date: new Date(editExpDate)
+                date: new Date(editExpDate),
+                isAutoPay: editIsAutoPay
             });
 
             // Re-calculate category total correctly
@@ -393,6 +397,7 @@ export default function CategoriesPage() {
         setEditExpAmount(exp.amount.toString());
         setEditExpDate(exp.date?.seconds ? format(new Date(exp.date.seconds * 1000), 'yyyy-MM-dd') : "");
         setEditExpCurrency(exp.currency || 'TRY');
+        setEditIsAutoPay(exp.isAutoPay || false);
     };
 
     const handleDeleteCategory = async (id: string, e: React.MouseEvent) => {
@@ -777,9 +782,9 @@ export default function CategoriesPage() {
                                 )}
                             >
                                 Aktif İşlemler
-                                {expenses.filter(e => e.status === 'unpaid').length > 0 && (
+                                {expenses.filter(e => e.categoryId === selectedCategory.id && e.status === 'unpaid').length > 0 && (
                                     <span className="bg-rose-500 text-white w-4 h-4 rounded-full flex items-center justify-center text-[8px]">
-                                        {expenses.filter(e => e.status === 'unpaid').length}
+                                        {expenses.filter(e => e.categoryId === selectedCategory.id && e.status === 'unpaid').length}
                                     </span>
                                 )}
                             </button>
@@ -794,19 +799,62 @@ export default function CategoriesPage() {
                             </button>
                         </div>
 
+                        {/* Month Navigation */}
+                        <div className="flex items-center justify-center gap-4 mb-2">
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 text-muted-foreground hover:bg-black/5"
+                                onClick={() => setSelectedMonth(subMonths(selectedMonth, 1))}
+                            >
+                                <ChevronLeft size={20} />
+                            </Button>
+
+                            <div className="flex items-center gap-2 px-4 py-1.5 bg-card border rounded-xl shadow-sm min-w-[140px] justify-center">
+                                <Calendar size={14} className="text-primary/60" />
+                                <span className="text-xs font-black uppercase tracking-widest text-foreground">
+                                    {format(selectedMonth, 'MMMM yyyy', { locale: tr })}
+                                </span>
+                            </div>
+
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 text-muted-foreground hover:bg-black/5"
+                                onClick={() => setSelectedMonth(addMonths(selectedMonth, 1))}
+                            >
+                                <ChevronRight size={20} />
+                            </Button>
+                        </div>
+
                         <div className="space-y-3">
                             {(() => {
                                 let filteredExpenses: Expense[] = [];
 
                                 if (viewMode === 'active') {
                                     filteredExpenses = expenses
-                                        .filter(exp => exp.categoryId === selectedCategory.id && exp.status === 'unpaid')
+                                        .filter(exp => {
+                                            const expDate = exp.date?.seconds ? new Date(exp.date.seconds * 1000) : null;
+                                            return exp.categoryId === selectedCategory.id &&
+                                                exp.status === 'unpaid' &&
+                                                expDate && isSameMonth(expDate, selectedMonth);
+                                        })
                                         .sort((a, b) => (a.dueDate?.seconds || 0) - (b.dueDate?.seconds || 0));
                                 } else {
                                     filteredExpenses = expenses
-                                        .filter(exp => exp.categoryId === selectedCategory.id && exp.status === 'paid')
+                                        .filter(exp => {
+                                            const expDate = exp.date?.seconds ? new Date(exp.date.seconds * 1000) : null;
+                                            return exp.categoryId === selectedCategory.id &&
+                                                exp.status === 'paid' &&
+                                                expDate && isSameMonth(expDate, selectedMonth);
+                                        })
                                         .sort((a, b) => (b.date?.seconds || 0) - (a.date?.seconds || 0));
                                 }
+
+                                const totalInTry = filteredExpenses.reduce((sum, exp) => {
+                                    const rate = rates[exp.currency || 'TRY'] || 1;
+                                    return sum + (exp.amount * rate);
+                                }, 0);
 
                                 if (filteredExpenses.length === 0) {
                                     return (
@@ -817,113 +865,140 @@ export default function CategoriesPage() {
                                     );
                                 }
 
-                                return filteredExpenses.map(exp => (
-                                    <div key={exp.id} className={cn(
-                                        "p-4 bg-card border rounded-2xl transition-all group",
-                                        exp.status === 'paid' ? "border-emerald-500/20 bg-emerald-500/5 shadow-sm" : "border-border/50",
-                                        editingExpId === exp.id ? "ring-2 ring-primary border-transparent" : "hover:shadow-sm"
-                                    )}>
-                                        {editingExpId === exp.id ? (
-                                            <form onSubmit={(e) => handleUpdateExpense(e, exp)} className="space-y-3">
-                                                <div className="flex gap-2">
-                                                    <Input
-                                                        className="flex-1 h-9"
-                                                        value={editExpName}
-                                                        onChange={e => setEditExpName(e.target.value)}
-                                                        autoFocus
-                                                    />
-                                                    <Button type="button" size="icon" variant="ghost" className="h-9 w-9 text-muted-foreground" onClick={() => setEditingExpId(null)}>
-                                                        <X size={16} />
-                                                    </Button>
-                                                </div>
-                                                <div className="flex gap-2">
-                                                    <select
-                                                        value={editExpCurrency}
-                                                        onChange={(e) => setEditExpCurrency(e.target.value)}
-                                                        className="bg-muted/50 border-none rounded-lg px-2 text-xs font-bold focus:ring-2 focus:ring-primary h-9 transition-all outline-none"
-                                                    >
-                                                        {CURRENCIES.map(c => (
-                                                            <option key={c.code} value={c.code}>{c.symbol}</option>
-                                                        ))}
-                                                    </select>
-                                                    <Input
-                                                        className="flex-1 h-9"
-                                                        value={formatAmountInput(editExpAmount)}
-                                                        onChange={e => setEditExpAmount(e.target.value.replace(/\D/g, ""))}
-                                                        placeholder="Tutar"
-                                                    />
-                                                    <Input
-                                                        type="date"
-                                                        className="w-[120px] h-9 text-xs"
-                                                        value={editExpDate}
-                                                        onChange={e => setEditExpDate(e.target.value)}
-                                                    />
-                                                    <Button type="submit" size="sm" className="h-9 px-3 text-[10px] font-bold">KAYDET</Button>
-                                                </div>
-                                            </form>
-                                        ) : (
-                                            <>
-                                                <div className="flex items-center justify-between">
-                                                    <div className="flex items-center gap-4">
-                                                        <button
-                                                            onClick={() => userRole === 'admin' && togglePaymentStatus(exp)}
-                                                            className={cn(
-                                                                "w-10 h-10 rounded-full flex items-center justify-center transition-colors shadow-sm",
-                                                                exp.status === 'paid' ? "bg-emerald-500 text-white" : "bg-muted text-muted-foreground hover:bg-emerald-500/10",
-                                                                userRole !== 'admin' && "cursor-default"
-                                                            )}
-                                                        >
-                                                            {exp.status === 'paid' ? <Check size={18} /> : <Clock size={18} />}
-                                                        </button>
-                                                        <div>
-                                                            <p className={cn("font-semibold transition-all mb-0.5", exp.status === 'paid' && "line-through text-muted-foreground opacity-70")}>
-                                                                {exp.name}
-                                                            </p>
-                                                            <div className="flex flex-col gap-0.5 mt-1">
-                                                                <div className="flex gap-2 text-[10px] font-medium uppercase tracking-wider">
-                                                                    <span className="text-muted-foreground">
-                                                                        Ödeme Dönemi: {exp.date?.seconds ? (
-                                                                            `${format(startOfMonth(new Date(exp.date.seconds * 1000)), "d MMM", { locale: tr })} - ${format(endOfMonth(new Date(exp.date.seconds * 1000)), "d MMM", { locale: tr })}`
-                                                                        ) : '-'}
-                                                                    </span>
-                                                                    {exp.dueDate && selectedCategory.type === 'expense' && (
-                                                                        <span className={cn(
-                                                                            exp.status === 'unpaid' && new Date(exp.dueDate.seconds * 1000) < new Date() ? "text-rose-500 font-bold" : "text-muted-foreground"
-                                                                        )}>
-                                                                            • Son Tarih: {format(new Date(exp.dueDate.seconds * 1000), "d MMM", { locale: tr })}
+                                return (
+                                    <>
+                                        <div className="flex items-center justify-between px-4 py-3 bg-primary/5 border border-primary/10 rounded-2xl mb-2">
+                                            <span className="text-[10px] font-black uppercase tracking-widest text-primary/60">Bu Ayki Alt Toplam</span>
+                                            <span className="text-base font-black tabular-nums text-primary">
+                                                ₺{Math.round(totalInTry).toLocaleString('tr-TR')}
+                                            </span>
+                                        </div>
+                                        {filteredExpenses.map(exp => (
+                                            <div key={exp.id} className={cn(
+                                                "p-4 bg-card border rounded-2xl transition-all group",
+                                                exp.status === 'paid' ? "border-emerald-500/20 bg-emerald-500/5 shadow-sm" : "border-border/50",
+                                                editingExpId === exp.id ? "ring-2 ring-primary border-transparent" : "hover:shadow-sm"
+                                            )}>
+                                                {editingExpId === exp.id ? (
+                                                    <form onSubmit={(e) => handleUpdateExpense(e, exp)} className="space-y-3">
+                                                        <div className="flex gap-2">
+                                                            <Input
+                                                                className="flex-1 h-9"
+                                                                value={editExpName}
+                                                                onChange={e => setEditExpName(e.target.value)}
+                                                                autoFocus
+                                                            />
+                                                            <Button type="button" size="icon" variant="ghost" className="h-9 w-9 text-muted-foreground" onClick={() => setEditingExpId(null)}>
+                                                                <X size={16} />
+                                                            </Button>
+                                                        </div>
+                                                        <div className="flex gap-2">
+                                                            <select
+                                                                value={editExpCurrency}
+                                                                onChange={(e) => setEditExpCurrency(e.target.value)}
+                                                                className="bg-muted/50 border-none rounded-lg px-2 text-xs font-bold focus:ring-2 focus:ring-primary h-9 transition-all outline-none"
+                                                            >
+                                                                {CURRENCIES.map(c => (
+                                                                    <option key={c.code} value={c.code}>{c.symbol}</option>
+                                                                ))}
+                                                            </select>
+                                                            <Input
+                                                                className="flex-1 h-9"
+                                                                value={formatAmountInput(editExpAmount)}
+                                                                onChange={e => setEditExpAmount(e.target.value.replace(/\D/g, ""))}
+                                                                placeholder="Tutar"
+                                                            />
+                                                            <Input
+                                                                type="date"
+                                                                className="w-[120px] h-9 text-xs"
+                                                                value={editExpDate}
+                                                                onChange={e => setEditExpDate(e.target.value)}
+                                                            />
+                                                            <Button type="submit" size="sm" className="h-9 px-3 text-[10px] font-bold">KAYDET</Button>
+                                                        </div>
+                                                        <div className="flex items-center space-x-2 py-1 px-1">
+                                                            <input
+                                                                type="checkbox"
+                                                                id="editIsAutoPay"
+                                                                checked={editIsAutoPay}
+                                                                onChange={(e) => setEditIsAutoPay(e.target.checked)}
+                                                                className="w-3.5 h-3.5 text-emerald-600 rounded"
+                                                            />
+                                                            <label htmlFor="editIsAutoPay" className="text-[10px] font-bold text-emerald-700 cursor-pointer flex items-center gap-1">
+                                                                <Banknote size={12} /> Otomatik Banka Ödemesi
+                                                            </label>
+                                                        </div>
+                                                    </form>
+                                                ) : (
+                                                    <div className="flex items-center justify-between">
+                                                        <div className="flex items-center gap-4">
+                                                            <button
+                                                                onClick={() => userRole === 'admin' && togglePaymentStatus(exp)}
+                                                                className={cn(
+                                                                    "w-10 h-10 rounded-full flex items-center justify-center transition-colors shadow-sm",
+                                                                    exp.status === 'paid' ? "bg-emerald-500 text-white" : "bg-muted text-muted-foreground hover:bg-emerald-500/10",
+                                                                    userRole !== 'admin' && "cursor-default"
+                                                                )}
+                                                            >
+                                                                {exp.status === 'paid' ? <Check size={18} /> : <Clock size={18} />}
+                                                            </button>
+                                                            <div>
+                                                                <div className="flex items-center gap-1.5 mb-0.5">
+                                                                    <p className={cn("font-semibold transition-all", exp.status === 'paid' && "line-through text-muted-foreground opacity-70")}>
+                                                                        {exp.name}
+                                                                    </p>
+                                                                    {exp.isAutoPay && (
+                                                                        <div className="flex items-center gap-1 px-1.5 py-0.5 bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 rounded text-[8px] font-black uppercase tracking-tighter">
+                                                                            <Banknote size={10} /> OTO
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                                <div className="flex flex-col gap-0.5 mt-1">
+                                                                    <div className="flex gap-2 text-[10px] font-medium uppercase tracking-wider">
+                                                                        <span className="text-muted-foreground">
+                                                                            Ödeme Dönemi: {exp.date?.seconds ? (
+                                                                                `${format(startOfMonth(new Date(exp.date.seconds * 1000)), "d MMM", { locale: tr })} - ${format(endOfMonth(new Date(exp.date.seconds * 1000)), "d MMM", { locale: tr })}`
+                                                                            ) : '-'}
+                                                                        </span>
+                                                                        {exp.dueDate && selectedCategory.type === 'expense' && (
+                                                                            <span className={cn(
+                                                                                exp.status === 'unpaid' && new Date(exp.dueDate.seconds * 1000) < new Date() ? "text-rose-500 font-bold" : "text-muted-foreground"
+                                                                            )}>
+                                                                                • Son Tarih: {format(new Date(exp.dueDate.seconds * 1000), "d MMM", { locale: tr })}
+                                                                            </span>
+                                                                        )}
+                                                                    </div>
+                                                                    {exp.status === 'paid' && exp.paidByEmail && (
+                                                                        <span className="text-[9px] text-emerald-600 font-bold flex items-center gap-1 bg-emerald-500/10 w-fit px-1.5 py-0.5 rounded-full">
+                                                                            <Check size={10} /> {exp.paidByEmail} tarafından ödendi
                                                                         </span>
                                                                     )}
                                                                 </div>
-                                                                {exp.status === 'paid' && exp.paidByEmail && (
-                                                                    <span className="text-[9px] text-emerald-600 font-bold flex items-center gap-1 bg-emerald-500/10 w-fit px-1.5 py-0.5 rounded-full">
-                                                                        <Check size={10} /> {exp.paidByEmail} tarafından ödendi
-                                                                    </span>
+                                                            </div>
+                                                        </div>
+                                                        <div className="flex items-center gap-1">
+                                                            <span className={cn("font-bold tabular-nums mr-2", exp.status === 'paid' ? "text-emerald-600" : "text-foreground")}>
+                                                                {selectedCategory.type === 'income' ? '+' : ''}{CURRENCIES.find(c => c.code === (exp.currency || 'TRY'))?.symbol || '₺'}{exp.amount?.toLocaleString('tr-TR')}
+                                                            </span>
+                                                            <div className="flex opacity-0 group-hover:opacity-100 transition-opacity">
+                                                                {userRole === 'admin' && (
+                                                                    <>
+                                                                        <button onClick={() => startEditing(exp)} className="text-muted-foreground hover:text-primary p-2">
+                                                                            <Edit2 size={16} />
+                                                                        </button>
+                                                                        <button onClick={() => handleDeleteExpense(exp)} className="text-muted-foreground hover:text-destructive p-2">
+                                                                            <Trash2 size={16} />
+                                                                        </button>
+                                                                    </>
                                                                 )}
                                                             </div>
                                                         </div>
                                                     </div>
-                                                    <div className="flex items-center gap-1">
-                                                        <span className={cn("font-bold tabular-nums mr-2", exp.status === 'paid' ? "text-emerald-600" : "text-foreground")}>
-                                                            {selectedCategory.type === 'income' ? '+' : ''}{CURRENCIES.find(c => c.code === (exp.currency || 'TRY'))?.symbol || '₺'}{exp.amount?.toLocaleString('tr-TR')}
-                                                        </span>
-                                                        <div className="flex opacity-0 group-hover:opacity-100 transition-opacity">
-                                                            {userRole === 'admin' && (
-                                                                <>
-                                                                    <button onClick={() => startEditing(exp)} className="text-muted-foreground hover:text-primary p-2">
-                                                                        <Edit2 size={16} />
-                                                                    </button>
-                                                                    <button onClick={() => handleDeleteExpense(exp)} className="text-muted-foreground hover:text-destructive p-2">
-                                                                        <Trash2 size={16} />
-                                                                    </button>
-                                                                </>
-                                                            )}
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            </>
-                                        )}
-                                    </div>
-                                ))
+                                                )}
+                                            </div>
+                                        ))}
+                                    </>
+                                );
                             })()}
                         </div>
                     </div>

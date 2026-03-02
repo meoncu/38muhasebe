@@ -5,7 +5,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import {
     ChevronLeft, Trash2, Check, Edit2, AlertCircle,
-    Search, LayoutPanelTop, Copy
+    Search, LayoutPanelTop, Copy, Banknote
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/store/authStore';
@@ -32,6 +32,8 @@ interface Expense {
     type: 'income' | 'expense';
     userId: string;
     installmentGroupId?: string;
+    isAutoPay?: boolean;
+    location?: string;
 }
 
 const CURRENCIES = [
@@ -56,7 +58,12 @@ export default function DebugPage() {
     const [editCurrency, setEditCurrency] = useState('TRY');
     const [editDate, setEditDate] = useState("");
     const [editCategoryId, setEditCategoryId] = useState("");
+    const [editIsAutoPay, setEditIsAutoPay] = useState(false);
     const [categories, setCategories] = useState<any[]>([]);
+
+    // Sort State
+    const [sortBy, setSortBy] = useState<'name' | 'date' | 'amount'>('date');
+    const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
 
     useEffect(() => {
         if (!activeUser) return;
@@ -203,7 +210,9 @@ export default function DebugPage() {
                 currency: editCurrency,
                 date: new Date(editDate),
                 categoryId: editCategoryId,
-                categoryName: newCat?.name || exp.categoryName
+                categoryName: newCat?.name || exp.categoryName,
+                isAutoPay: editIsAutoPay,
+                location: editIsAutoPay ? 'Bankada' : 'Kasa'
             });
 
             // Adjust totals for old and new categories
@@ -239,12 +248,35 @@ export default function DebugPage() {
         setEditCurrency(exp.currency || 'TRY');
         setEditDate(exp.date?.seconds ? format(new Date(exp.date.seconds * 1000), 'yyyy-MM-dd') : "");
         setEditCategoryId(exp.categoryId);
+        setEditIsAutoPay(exp.isAutoPay || false);
     };
 
-    const filteredExpenses = expenses.filter(e =>
-        e.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        e.categoryName?.toLowerCase().includes(searchTerm.toLowerCase())
-    );
+    const sortedExpenses = [...expenses].sort((a, b) => {
+        let valA: any, valB: any;
+
+        if (sortBy === 'name') {
+            valA = a.name.toLowerCase();
+            valB = b.name.toLowerCase();
+        } else if (sortBy === 'date') {
+            valA = a.dueDate?.seconds || 0;
+            valB = b.dueDate?.seconds || 0;
+        } else if (sortBy === 'amount') {
+            // Use TRY amount for accurate comparison if possible, or just raw amount
+            const rateA = rates[a.currency || 'TRY'] || 1;
+            const rateB = rates[b.currency || 'TRY'] || 1;
+            valA = a.amount * rateA;
+            valB = b.amount * rateB;
+        }
+
+        if (valA < valB) return sortOrder === 'asc' ? -1 : 1;
+        if (valA > valB) return sortOrder === 'asc' ? 1 : -1;
+        return 0;
+    });
+
+    const filteredExpenses = sortedExpenses.filter(e => {
+        return e.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            e.categoryName?.toLowerCase().includes(searchTerm.toLowerCase());
+    });
 
     if (userRole !== 'admin') return null;
 
@@ -268,14 +300,46 @@ export default function DebugPage() {
 
             <div className="p-6 space-y-6">
                 {/* Search & Filter */}
-                <div className="relative">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input
-                        placeholder="Fatura veya grup adı ara..."
-                        className="pl-10 bg-card border-border/50 rounded-2xl h-12"
-                        value={searchTerm}
-                        onChange={e => setSearchTerm(e.target.value)}
-                    />
+                <div className="space-y-4">
+                    <div className="relative">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                        <Input
+                            placeholder="Fatura veya grup adı ara..."
+                            className="pl-10 bg-card border-border/50 rounded-2xl h-12"
+                            value={searchTerm}
+                            onChange={e => setSearchTerm(e.target.value)}
+                        />
+                    </div>
+
+                    <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none">
+                        <SortButton
+                            active={sortBy === 'date'}
+                            label="Tarih"
+                            order={sortOrder}
+                            onClick={() => {
+                                if (sortBy === 'date') setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+                                else { setSortBy('date'); setSortOrder('asc'); }
+                            }}
+                        />
+                        <SortButton
+                            active={sortBy === 'name'}
+                            label="İsim"
+                            order={sortOrder}
+                            onClick={() => {
+                                if (sortBy === 'name') setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+                                else { setSortBy('name'); setSortOrder('asc'); }
+                            }}
+                        />
+                        <SortButton
+                            active={sortBy === 'amount'}
+                            label="Tutar"
+                            order={sortOrder}
+                            onClick={() => {
+                                if (sortBy === 'amount') setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+                                else { setSortBy('amount'); setSortOrder('desc'); } // Default desc for amount
+                            }}
+                        />
+                    </div>
                 </div>
 
                 {/* List */}
@@ -336,6 +400,18 @@ export default function DebugPage() {
                                                     <Button type="button" variant="outline" size="sm" className="flex-1" onClick={() => setEditingId(null)}>İPTAL</Button>
                                                     <Button type="submit" size="sm" className="flex-1">KAYDET</Button>
                                                 </div>
+                                                <div className="flex items-center space-x-2 py-1">
+                                                    <input
+                                                        type="checkbox"
+                                                        id="debugEditAutoPay"
+                                                        checked={editIsAutoPay}
+                                                        onChange={(e) => setEditIsAutoPay(e.target.checked)}
+                                                        className="w-4 h-4 text-emerald-600 border-gray-300 rounded cursor-pointer border-2"
+                                                    />
+                                                    <label htmlFor="debugEditAutoPay" className="text-[10px] font-bold text-emerald-700 dark:text-emerald-400 cursor-pointer">
+                                                        Otomatik Banka Ödemesi
+                                                    </label>
+                                                </div>
                                             </form>
                                         ) : (
                                             <div className="flex items-center justify-between">
@@ -349,7 +425,12 @@ export default function DebugPage() {
                                                     <div>
                                                         <div className="flex items-center gap-2">
                                                             <p className="font-bold text-sm tracking-tight">{exp.name}</p>
-                                                            {isOverdue && <AlertCircle size={14} className="text-rose-500" />}
+                                                            {isOverdue && !exp.isAutoPay && <AlertCircle size={14} className="text-rose-500" />}
+                                                            {exp.isAutoPay && (
+                                                                <div className="flex items-center gap-1 px-1.5 py-0.5 bg-emerald-100 text-emerald-600 rounded text-[8px] font-black uppercase">
+                                                                    <Banknote size={10} /> OTO
+                                                                </div>
+                                                            )}
                                                         </div>
                                                         <div className="flex flex-col gap-0.5 mt-0.5">
                                                             <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">
@@ -401,5 +482,26 @@ export default function DebugPage() {
                 </div>
             </div>
         </div>
+    );
+}
+
+function SortButton({ active, label, order, onClick }: { active: boolean, label: string, order: 'asc' | 'desc', onClick: () => void }) {
+    return (
+        <Button
+            variant={active ? "default" : "outline"}
+            size="sm"
+            onClick={onClick}
+            className={cn(
+                "h-8 rounded-full text-[10px] font-black uppercase tracking-widest px-4 transition-all whitespace-nowrap",
+                active ? "bg-emerald-600 hover:bg-emerald-700 text-white" : "text-muted-foreground border-border/50"
+            )}
+        >
+            {label}
+            {active && (
+                <span className="ml-1.5 opacity-60">
+                    {order === 'asc' ? '↑' : '↓'}
+                </span>
+            )}
+        </Button>
     );
 }
