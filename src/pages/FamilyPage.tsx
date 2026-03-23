@@ -13,7 +13,9 @@ const STORAGE_LOCATIONS = ['Kasa', 'Babada', 'Annede', 'Bankada', 'Kendisinde', 
 const CURRENCIES = [
     { code: 'TRY', symbol: '₺', label: 'TL' },
     { code: 'USD', symbol: '$', label: 'Dolar' },
-    { code: 'EUR', symbol: '€', label: 'Euro' }
+    { code: 'EUR', symbol: '€', label: 'Euro' },
+    { code: 'GA', symbol: 'gr', label: 'Gram Altın' },
+    { code: 'CA', symbol: 'çey', label: 'Çeyrek Altın' }
 ];
 
 import { format } from 'date-fns';
@@ -53,24 +55,44 @@ export default function FamilyPage() {
     const [showHistoryModal, setShowHistoryModal] = useState(false);
     const [historyItems, setHistoryItems] = useState<any[]>([]);
     const [selectedHistoryMember, setSelectedHistoryMember] = useState<any>(null);
-    const [rates, setRates] = useState<Record<string, number>>({ 'TRY': 1, 'USD': 35.0, 'EUR': 38.0 });
+    const [rates, setRates] = useState<Record<string, number>>({ 'TRY': 1, 'USD': 36.0, 'EUR': 39.0, 'GA': 6400, 'CA': 11000 });
 
     // Fetch live rates (same as Dashboard for consistency)
     useEffect(() => {
         const fetchRates = async () => {
             try {
+                const newRates: Record<string, number> = { 'TRY': 1 };
+
+                // Fetch USD/EUR
                 const response = await fetch('https://api.exchangerate-api.com/v4/latest/USD');
                 if (response.ok) {
                     const data = await response.json();
                     if (data && data.rates && data.rates.TRY) {
                         const tryBase = data.rates.TRY;
-                        setRates({
-                            'TRY': 1,
-                            'USD': tryBase,
-                            'EUR': tryBase / data.rates.EUR
-                        });
+                        newRates['USD'] = tryBase;
+                        newRates['EUR'] = tryBase / data.rates.EUR;
                     }
                 }
+
+                // Fetch Gold Prices
+                try {
+                    const goldResponse = await fetch('https://finans.truncgil.com/today.json');
+                    if (goldResponse.ok) {
+                        const goldData = await goldResponse.json();
+                        if (goldData["gram-altin"]) {
+                            const val = goldData["gram-altin"].Satış.replace(/\./g, '').replace(',', '.');
+                            newRates['GA'] = parseFloat(val);
+                        }
+                        if (goldData["ceyrek-altin"]) {
+                            const val = goldData["ceyrek-altin"].Satış.replace(/\./g, '').replace(',', '.');
+                            newRates['CA'] = parseFloat(val);
+                        }
+                    }
+                } catch (goldErr) {
+                    console.error("Gold fetch error:", goldErr);
+                }
+
+                setRates(prev => ({ ...prev, ...newRates }));
             } catch (err) {
                 console.error("Rate fetch error:", err);
             }
@@ -771,19 +793,20 @@ export default function FamilyPage() {
                             <div className="grid grid-cols-2 gap-4">
                                 <div className="space-y-2">
                                     <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground ml-1">Para Birimi</label>
-                                    <div className="flex gap-2">
+                                    <div className="grid grid-cols-5 gap-1.5">
                                         {CURRENCIES.map((curr) => (
                                             <button
                                                 key={curr.code}
                                                 type="button"
                                                 onClick={() => setTransCurrency(curr.code)}
                                                 className={cn(
-                                                    "flex-1 p-2 rounded-xl text-xs font-bold border-2 transition-all",
+                                                    "p-2 rounded-xl text-[10px] sm:text-xs font-bold border-2 transition-all flex flex-col items-center justify-center gap-0.5",
                                                     transCurrency === curr.code ? "bg-primary/10 border-primary text-primary" : "bg-card border-border/50 text-muted-foreground hover:border-border"
                                                 )}
                                                 title={curr.label}
                                             >
-                                                {curr.symbol}
+                                                <span className="text-base leading-none">{curr.symbol}</span>
+                                                <span className="text-[8px] opacity-60 font-black">{curr.code}</span>
                                             </button>
                                         ))}
                                     </div>
@@ -938,18 +961,20 @@ export default function FamilyPage() {
                         <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-2">
                                 <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Para Birimi</label>
-                                <div className="flex gap-2">
+                                <div className="grid grid-cols-5 gap-1.5">
                                     {CURRENCIES.map((curr) => (
                                         <button
                                             key={curr.code}
                                             type="button"
                                             onClick={() => setTransferCurrency(curr.code)}
                                             className={cn(
-                                                "flex-1 p-2 rounded-xl text-xs font-bold border border-border transition-all",
-                                                transferCurrency === curr.code ? "bg-amber-100 border-amber-600 text-amber-700" : "bg-muted/30 text-muted-foreground"
+                                                "p-2 rounded-xl text-[10px] font-bold border border-border transition-all flex flex-col items-center justify-center gap-0.5",
+                                                transferCurrency === curr.code ? "bg-amber-100 border-amber-600 text-amber-700 font-black" : "bg-muted/30 text-muted-foreground hover:border-border"
                                             )}
+                                            title={curr.label}
                                         >
-                                            {curr.symbol}
+                                            <span className="text-sm leading-none">{curr.symbol}</span>
+                                            <span className="text-[7px] opacity-60">{curr.code}</span>
                                         </button>
                                     ))}
                                 </div>
